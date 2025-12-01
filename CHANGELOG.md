@@ -1,5 +1,13 @@
 # Changelog
 
+## 6.9.2 (2025-12-01)
+
+Full Changelog: [v6.9.1...v6.9.2](https://github.com/openai/openai-node/compare/v6.9.1...v6.9.2)
+
+### Chores
+
+* **client:** fix logger property type ([fdc671f](https://github.com/openai/openai-node/commit/fdc671f1b21249a8610b38e2535910d956dc3611))
+
 ## 6.9.1 (2025-11-17)
 
 Full Changelog: [v6.9.0...v6.9.1](https://github.com/openai/openai-node/compare/v6.9.0...v6.9.1)
