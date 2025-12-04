@@ -8,6 +8,11 @@ import type { ChatCompletionContentPart } from '../../resources';
  * into the `.toolRunner()` method. The Zod schema will automatically be
  * converted into JSON Schema when passed to the API. The provided function's
  * input arguments will also be validated against the provided schema.
+ *
+ * For object schemas, the input arguments are parsed directly and passed to the
+ * function. For non-object schemas (primitives, arrays, etc.), the schema is
+ * wrapped in an object type before parsing to comply with the function calling
+ * format.
  */
 export function betaZodFunctionTool<InputSchema extends ZodType>(options: {
   name: string;
@@ -17,20 +22,30 @@ export function betaZodFunctionTool<InputSchema extends ZodType>(options: {
 }): BetaRunnableTool<zodInfer<InputSchema>> {
   const jsonSchema = z.toJSONSchema(options.parameters, { reused: 'ref' });
 
-  // TypeScript doesn't narrow the type after the runtime check, so we need to assert it
-  const objectSchema = jsonSchema as typeof jsonSchema & { type: 'object' };
-
   return {
     type: 'function',
     function: {
       name: options.name,
       description: options.description,
-      parameters: {
-        type: 'object',
-        properties: objectSchema.properties,
-      },
+      parameters:
+        jsonSchema.type === 'object' ?
+          jsonSchema
+        : {
+            type: 'object',
+            properties: {
+              [jsonSchema.type as string]: jsonSchema,
+            },
+          },
     },
     run: options.run,
-    parse: (args: unknown) => options.parameters.parse(args),
+    parse: (args: unknown) => {
+      if (jsonSchema.type === 'object') {
+        const parsed = options.parameters.parse(args);
+        return parsed;
+      } else {
+        const result = (args as Record<string, unknown>)[jsonSchema.type as string];
+        return result as zodInfer<InputSchema>;
+      }
+    },
   };
 }

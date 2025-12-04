@@ -161,6 +161,50 @@ describe('toolRunner integration tests', () => {
     expect(secondMessage.finish_reason).toBe('stop');
   });
 
+  it('should work with array schema', async () => {
+    const runner = client.beta.chat.completions.toolRunner({
+      model: 'gpt-4o',
+      max_tokens: 1000,
+      max_iterations: 5, // High limit, should stop before reaching it
+      messages: [
+        {
+          role: 'user',
+          content:
+            'Use the array_tool with the array ["hello", "world"], then provide a final response that includes the word \'foo\'.',
+        },
+      ],
+      tools: [
+        betaZodFunctionTool({
+          name: 'array_tool',
+          description: 'Tool for array operations',
+          parameters: z.array(z.string()).describe('Array of strings'),
+          run: async (input: string[]) => {
+            return input.map((item) => item.toUpperCase()).join(', ');
+          },
+        }),
+      ],
+    });
+
+    const messages = [];
+    for await (const message of runner) {
+      messages.push(message);
+    }
+
+    // Should have exactly 2 messages: tool use + final response
+    expect(messages).toHaveLength(2);
+
+    // First message should contain one tool use
+    const firstMessage = messages[0]!.choices[0]!;
+    expect(firstMessage.message.role).toBe('assistant');
+    expect(firstMessage.message.tool_calls).toHaveLength(1);
+
+    // Second message should be final response with text
+    const secondMessage = messages[1]!.choices[0]!;
+    expect(secondMessage.message.role).toBe('assistant');
+    expect(secondMessage.message.content).toContain('foo');
+    expect(secondMessage.finish_reason).toBe('stop');
+  });
+
   describe('max_iterations', () => {
     it('should respect max_iterations limit', async () => {
       const tool = createCounterTool();

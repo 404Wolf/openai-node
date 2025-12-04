@@ -7,7 +7,7 @@ import { z } from 'zod';
 const client = new OpenAI();
 
 async function main() {
-  const message = await client.beta.chat.completions.toolRunner({
+  const runner = client.beta.chat.completions.toolRunner({
     messages: [
       {
         role: 'user',
@@ -18,11 +18,9 @@ async function main() {
       betaZodFunctionTool({
         name: 'getWeather',
         description: 'Get the weather at a specific location',
-        parameters: z.object({
-          location: z.string().describe('The city and state, e.g. San Francisco, CA'),
-        }),
-        run: ({ location }) => {
-          return `The weather is foggy with a temperature of 20°C in ${location}.`;
+        parameters: z.array(z.string().describe('The city and state, e.g. San Francisco, CA')),
+        run: (locations) => {
+          return `The weather is foggy with a temperature of 20°C in ${locations[0]}.`;
         },
       }),
     ],
@@ -31,8 +29,10 @@ async function main() {
     // the maximum number of iterations to run the tool
     max_iterations: 10,
   });
+  const message = await runner;
 
   console.log('Final response:', message.content);
+  console.log('Final response:', runner.params);
 }
 
 main();
