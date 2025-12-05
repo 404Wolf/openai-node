@@ -17,6 +17,7 @@ const MathResponse = z.object({
 const client = new OpenAI();
 
 async function main() {
+  console.log(JSON.stringify(zodTextFormat(MathResponse, 'math_response'), null, 2));
   const rsp = await client.responses.parse({
     input: 'solve 8x + 31 = 2',
     model: 'gpt-4o-2024-08-06',

@@ -5,13 +5,20 @@ import type { RequestOptions } from '../../internal/request-options';
 import type {
   ChatCompletion,
   ChatCompletionCreateParams,
+  ChatCompletionFunctionTool,
   ChatCompletionMessage,
   ChatCompletionMessageParam,
   ChatCompletionStream,
   ChatCompletionTool,
   ChatCompletionToolMessageParam,
 } from '../../resources/chat/completions';
-import type { BetaRunnableChatCompletionFunctionTool } from './BetaRunnableTool';
+import type {
+  BetaRunnableChatFunctionTool,
+  BetaRunnableFunctionTool,
+  BetaRunnableResponsesFunctionTool,
+  ChatAndResponsesSharedOutput,
+  ChatOnlyBetaRunnableFunctionTool,
+} from './BetaRunnableTool';
 
 /**
  * Just Promise.withResolvers(), which is not available in all environments.
@@ -123,9 +130,29 @@ export class BetaToolRunner<Stream extends boolean>
           this.#iterationCount++;
 
           const { max_iterations: _, ...params } = this.#state.params;
+          const apiTools = params.tools.map((tool) => {
+            if (tool.type === 'function' && 'run' in tool) {
+              return {
+                type: 'function',
+                function: {
+                  name: tool.name,
+                  ...(tool.description ? { description: tool.description } : undefined),
+                  parameters: tool.parameters ?? {},
+                },
+              } satisfies ChatCompletionFunctionTool;
+            }
+            return tool;
+          });
 
           if (params.stream) {
-            stream = this.client.chat.completions.stream({ ...params, stream: true }, this.#options);
+            stream = this.client.chat.completions.stream(
+              {
+                ...params,
+                stream: true,
+                tools: apiTools,
+              },
+              this.#options,
+            );
             this.#message = stream.finalMessage();
 
             // Make sure that this promise doesn't throw before we get the option to do something about it.
@@ -136,6 +163,7 @@ export class BetaToolRunner<Stream extends boolean>
             this.#chatCompletion = this.client.chat.completions.create(
               {
                 ...params, // spread and explicit so we get better types
+                tools: apiTools,
                 stream: false,
               },
               this.#options,
@@ -254,8 +282,7 @@ export class BetaToolRunner<Stream extends boolean>
     const toolsResponse = generateToolResponse(
       lastMessage,
       this.#state.params.tools.filter(
-        (tool): tool is BetaRunnableChatCompletionFunctionTool<any> =>
-          'run' in tool && tool.type === 'function',
+        (tool): tool is BetaRunnableChatFunctionTool<any> => 'run' in tool && tool.type === 'function',
       ),
     );
     this.#toolResponse = toolsResponse;
@@ -361,7 +388,7 @@ export class BetaToolRunner<Stream extends boolean>
 
 async function generateToolResponse(
   lastMessage: ChatCompletionMessage,
-  tools: BetaRunnableChatCompletionFunctionTool<any>[],
+  tools: BetaRunnableResponsesFunctionTool<unknown, ChatAndResponsesSharedOutput>[],
 ): Promise<null | ChatCompletionToolMessageParam[]> {
   // Only process if the last message is from the assistant and has tool use blocks
   if (!lastMessage || lastMessage.role !== 'assistant' || typeof lastMessage.content === 'string') {
@@ -376,35 +403,37 @@ async function generateToolResponse(
 
   return (
     await Promise.all(
-      prevToolCalls.map(async (toolUse) => {
-        if (toolUse.type !== 'function') return; // TODO: eventually we should support additional tool call types
+      prevToolCalls.map(async (toolUse): Promise<ChatCompletionToolMessageParam | null> => {
+        if (toolUse.type !== 'function') return null; // TODO: eventually we should support additional tool call types
 
-        const tool = tools.find(
-          (t) => t.type === 'function' && toolUse.function.name === t.function.name,
-        ) as BetaRunnableChatCompletionFunctionTool;
+        const tool = tools.find((t) => t.type === 'function' && toolUse.function.name === t.name);
 
-        if (!tool || !('run' in tool)) {
+        if (!tool) {
           return {
-            type: 'tool_result' as const,
+            role: 'tool',
             tool_call_id: toolUse.id,
             content: `Error: Tool '${toolUse.function.name}' not found`,
-            is_error: true,
           };
         }
 
         try {
           const result = await tool.run(tool.parse(JSON.parse(toolUse.function.arguments)));
           return {
-            type: 'tool_result' as const,
+            role: 'tool',
             tool_call_id: toolUse.id,
-            content: typeof result === 'string' ? result : JSON.stringify(result),
+            content:
+              typeof result === 'string' ? result : (
+                result.map((responsesFlavour) => ({
+                  type: 'text',
+                  text: responsesFlavour.text,
+                }))
+              ),
           };
         } catch (error) {
           return {
-            type: 'tool_result' as const,
+            role: 'tool',
             tool_call_id: toolUse.id,
             content: `Error: ${error instanceof Error ? error.message : String(error)}`,
-            is_error: true,
           };
         }
       }),
@@ -426,7 +455,7 @@ type Simplify<T> = { [KeyType in keyof T]: T[KeyType] } & {};
  */
 export type BetaToolRunnerParams = Simplify<
   Omit<ChatCompletionCreateParams, 'tools'> & {
-    tools: (ChatCompletionTool | BetaRunnableChatCompletionFunctionTool<any>)[];
+    tools: ChatOnlyBetaRunnableFunctionTool[];
     /**
      * Maximum number of iterations (API requests) to make in the tool execution loop.
      * Each iteration consists of: assistant response → tool execution → tool results.

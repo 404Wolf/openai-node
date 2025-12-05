@@ -2,11 +2,23 @@
 
 import OpenAI from 'openai';
 import { betaZodFunctionTool } from 'openai/helpers/beta/zod';
+import { BetaRunnableChatFunctionTool } from 'openai/lib/beta/BetaRunnableTool';
 import { z } from 'zod';
 
 const client = new OpenAI();
 
 async function main() {
+  const tool = betaZodFunctionTool({
+    name: 'getWeather',
+    description: 'Get the weather at a specific location',
+    parameters: z.object({
+      location: z.string().describe('The city and state, e.g. San Francisco, CA'),
+    }),
+    run: ({ location }) => {
+      return `The weather is sunny with a temperature of 20°C in ${location}.`;
+    },
+  });
+
   const runner = client.beta.chat.completions.toolRunner({
     messages: [
       {
@@ -22,7 +34,7 @@ async function main() {
           location: z.string().describe('The city and state, e.g. San Francisco, CA'),
         }),
         run: ({ location }) => {
-          return `The weather is sunny with a temperature of 20°C in ${location}.`;
+          return [{ type: 'input_text', text: 'test' }];
         },
       }),
       betaZodFunctionTool({

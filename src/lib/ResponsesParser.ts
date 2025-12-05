@@ -21,7 +21,7 @@ export type ResponseCreateParamsWithTools = ResponseCreateParamsBase & {
   tools?: ParseableToolsParams;
 };
 
-type TextConfigParams = { text?: ResponseTextConfig };
+type TextConfigParams<Schema = unknown> = { text?: ResponseTextConfig<Schema> };
 
 export type ExtractParsedContentFromParams<Params extends TextConfigParams> =
   NonNullable<Params['text']>['format'] extends AutoParseableTextFormat<infer P> ? P : null;

@@ -11,6 +11,15 @@ const MathResponse = z.object({
   steps: z.array(Step),
   final_answer: z.string(),
 });
+console.log(
+  JSON.stringify(
+    z.toJSONSchema(z.date().describe("A valid URL"), {
+      target: 'draft-7',
+    }),
+    null,
+    2,
+  ),
+);
 
 async function main() {
   const client = new OpenAI();
